@@ -193,6 +193,62 @@ def submit():
     threading.Thread(target=worker, args=(task, data, mode), daemon=True).start()
     return jsonify(task_id=task_id), 202
 
+@app.post('/delete')
+def delete_video_route():
+    body = request.get_json(silent=True) or {}
+    for key in ('channel', 'job', 'kind', 'video_id'):
+        if not body.get(key):
+            raise ValueError(f'Missing {key}')
+
+    record_path, record = logic.find_record(body['channel'], body['job'], body['kind'])
+    if record_path is None:
+        return jsonify(error='No published record for this channel, job, and kind.'), 404
+    if record.get('video_id') != body['video_id']:
+        raise ValueError('video_id does not match the published record.')
+    if record.get('deleted'):
+        return jsonify(deleted=True, video_id=record['video_id'])
+
+    active = [t for t in tasks.values() if t['status'] in ('queued', 'running', 'waiting')]
+    if active:
+        raise ValueError('A publish task is active. Try again after it finishes.')
+
+    dry_run = request.args.get('dry_run') == '1'
+
+    if not browser_lock.acquire(blocking=False):
+        raise ValueError('Another publish is using the shared Chrome profile. Try again after it finishes.')
+    try:
+        profile_lock = ROOT / 'profiles' / '.main-upload.lock'
+        try:
+            fd = os.open(profile_lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+        except FileExistsError:
+            raise ValueError('Another publish is using the shared Chrome profile. Try again after it finishes.')
+
+        try:
+            cfg = logic.config()
+            backend.load_global(require_profile=True)
+            _, channel = backend.load_channel(body['channel'])
+            folder = logic.destination(body['channel'], body['job']) / 'tasks' / f"delete_{uuid.uuid4().hex}"
+            folder.mkdir(parents=True, exist_ok=True)
+
+            import studio_automation as studio
+            result = studio.delete_video(
+                cfg, channel['youtube_channel_name'], body['video_id'], folder,
+                lambda message, shot=None: None, dry_run=dry_run)
+
+            if dry_run:
+                return jsonify(deleted=False, dry_run=True, video_id=body['video_id'])
+
+            updated = dict(record)
+            updated['deleted'] = True
+            updated['deleted_at'] = time.strftime('%Y-%m-%dT%H:%M:%S%z')
+            backend.write_json(record_path, updated)
+            return jsonify(deleted=True, video_id=body['video_id'])
+        finally:
+            profile_lock.unlink(missing_ok=True)
+    finally:
+        browser_lock.release()
+
 @app.post('/publish/pair')
 def submit_pair():
     """Publish both versions of one job in order: the explainer first; when it is complete, its YouTube URL replaces the

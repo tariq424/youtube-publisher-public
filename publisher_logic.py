@@ -51,6 +51,17 @@ def records():
             continue
     return result
 
+def find_record(channel, job, kind):
+    """Return (path, record) for channel+job+kind, including deleted records."""
+    for path in (ROOT / 'uploads').glob('*/*/published*.json'):
+        try:
+            record = backend.read_json(path)
+        except (ValueError, OSError):
+            continue
+        if record.get('channel') == channel and record.get('job') == job and record.get('kind') == kind:
+            return path, record
+    return None, None
+
 PLACEHOLDER = '<PASTE LONG VIDEO LINK HERE>'
 _PLACEHOLDER_LINE = re.compile(r'(?m)^[^\r\n]*' + re.escape(PLACEHOLDER) + r'[^\r\n]*(?:\r?\n)?(?:[ \t]*\r?\n)?')
 

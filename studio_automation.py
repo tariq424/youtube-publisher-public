@@ -374,3 +374,124 @@ def publish(data, video, thumbnail, cfg, channel_name, folder, emit, cancelled, 
             raise
         finally:
             context.close()
+
+def delete_video(cfg, channel_name, video_id, folder, emit, dry_run=False):
+    """Delete a video from YouTube Studio, then verify that it is gone."""
+    open_studio_url = 'https://studio.youtube.com/'
+    edit_url_template = 'https://studio.youtube.com/video/{video_id}/edit'
+    avatar_selector = 'ytcp-app #avatar-btn'
+    switch_account_text = 'Switch account'
+    entity_name_selector = 'ytcp-navigation-drawer #entity-name'
+    options_button_role_name = 'Options'
+    options_button_selector = 'button[aria-label="Options"]'
+    delete_forever_text = 'Delete forever'
+    understand_checkbox_text = 'I understand that deleting is permanent'
+    final_delete_button_text = 'Delete'
+    unavailable_texts = ('Video unavailable', 'This video has been removed')
+
+    folder.mkdir(parents=True, exist_ok=True)
+    sequence = 0
+
+    def already_gone(page):
+        if not page.url.startswith('https://studio.youtube.com/video/'):
+            return True
+        for text in unavailable_texts:
+            if page.get_by_text(text, exact=False).count() > 0:
+                return True
+        return False
+
+    with sync_playwright() as pw:
+        args = ['--lang=en-US']
+        if not cfg.get('playwright_headless', False) and cfg.get('offscreen_window', True):
+            args += ['--window-position=-32000,-32000', '--window-size=1440,1000']
+        context = pw.chromium.launch_persistent_context(
+            cfg['chrome_profile'], channel='chrome',
+            headless=cfg.get('playwright_headless', False), locale='en-US', args=args)
+        page = context.new_page()
+        page.set_default_timeout(20000)
+
+        def checkpoint(message):
+            nonlocal sequence
+            sequence += 1
+            safe = re.sub(r'[^A-Za-z0-9_.-]+', '_', message).strip('_')[:60] or 'step'
+            shot = folder / f'{sequence:03d}_{safe}.png'
+            page.screenshot(path=str(shot))
+            emit(message, str(shot))
+
+        def click(locator, message):
+            locator.first.wait_for(state='visible', timeout=20000)
+            locator.first.click()
+            checkpoint(message)
+
+        try:
+            checkpoint('Navigating to YouTube Studio...')
+            page.goto(open_studio_url, wait_until='domcontentloaded')
+            click(page.locator(avatar_selector), 'Opening channel switcher...')
+            click(page.get_by_text(switch_account_text, exact=True), 'Switching to ' + channel_name + ' channel...')
+            entries = page.locator('ytd-account-item-renderer').filter(has=page.get_by_text(channel_name, exact=True))
+            expect(entries).to_have_count(1)
+            click(entries, 'Selecting ' + channel_name + '...')
+            expect(page.locator(entity_name_selector)).to_have_text(channel_name, timeout=60000)
+            checkpoint('Channel verified: ' + channel_name)
+
+            edit_url = edit_url_template.format(video_id=video_id)
+            checkpoint('Opening video edit page...')
+            page.goto(edit_url, wait_until='domcontentloaded')
+            page.wait_for_timeout(1500)
+
+            if already_gone(page):
+                checkpoint('Video already unavailable in Studio')
+                return {'deleted': True, 'already_gone': True}
+
+            options_button = page.get_by_role('button', name=options_button_role_name, exact=True)
+            if options_button.count() == 0:
+                options_button = page.locator(options_button_selector)
+            click(options_button, 'Opening video options menu...')
+
+            delete_item = page.get_by_text(delete_forever_text, exact=True)
+            if delete_item.count() == 0:
+                delete_item = page.get_by_role('menuitem', name=delete_forever_text, exact=True)
+            click(delete_item, 'Choosing Delete forever...')
+
+            checkbox = page.get_by_role('checkbox', name=understand_checkbox_text, exact=True)
+            if checkbox.count() == 1:
+                checkbox.check()
+            else:
+                checkbox_label = page.get_by_text(understand_checkbox_text, exact=True)
+                if checkbox_label.count() == 0:
+                    raise RuntimeError('Could not find the permanent deletion confirmation checkbox.')
+                checkbox_label.first.click()
+            checkpoint('Confirmed permanent deletion checkbox')
+
+            if dry_run:
+                checkpoint('Dry run: delete confirmation dialog shown')
+                close_button = page.get_by_role('button', name='Close', exact=True)
+                if close_button.count():
+                    close_button.first.click()
+                else:
+                    page.keyboard.press('Escape')
+                checkpoint('Dry run: closed delete confirmation dialog')
+                return {'deleted': False, 'already_gone': False, 'dry_run': True}
+
+            dialog = page.get_by_role('dialog')
+            if dialog.count():
+                confirm_button = dialog.last.get_by_role('button', name=final_delete_button_text, exact=True)
+            else:
+                confirm_button = page.get_by_role('button', name=final_delete_button_text, exact=True)
+            if confirm_button.count() == 0:
+                confirm_button = page.locator('ytcp-button').filter(has_text=final_delete_button_text).last
+            checkpoint('Clicking final Delete button...')
+            confirm_button.click()
+
+            page.wait_for_timeout(3000)
+            checkpoint('Delete submitted; verifying the edit page no longer shows it...')
+            page.goto(edit_url, wait_until='domcontentloaded')
+            if already_gone(page):
+                checkpoint('Verified video is gone')
+                return {'deleted': True, 'already_gone': False}
+            raise RuntimeError('Delete verification failed: Studio still shows the video.')
+        except Exception as error:
+            checkpoint('Delete failed: ' + str(error).splitlines()[0])
+            raise
+        finally:
+            context.close()
