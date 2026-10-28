@@ -384,9 +384,9 @@ def delete_video(cfg, channel_name, video_id, folder, emit, dry_run=False):
     entity_name_selector = 'ytcp-navigation-drawer #entity-name'
     options_button_role_name = 'Options'
     options_button_selector = 'button[aria-label="Options"]'
-    delete_forever_text = 'Delete forever'
-    understand_checkbox_text = 'I understand that deleting is permanent'
-    final_delete_button_text = 'Delete'
+    delete_menu_text = 'Delete'                     # verified 2026-10-28: the edit page's three-dot menu says 'Delete'
+    understand_checkbox_text = 'I understand'       # partial match; full wording checked from the dry-run screenshot
+    final_delete_button_texts = ('Delete forever', 'Delete')   # first one present inside the dialog wins
     unavailable_texts = ('Video unavailable', 'This video has been removed')
 
     folder.mkdir(parents=True, exist_ok=True)
@@ -448,38 +448,51 @@ def delete_video(cfg, channel_name, video_id, folder, emit, dry_run=False):
                 options_button = page.locator(options_button_selector)
             click(options_button, 'Opening video options menu...')
 
-            delete_item = page.get_by_text(delete_forever_text, exact=True)
+            delete_item = page.get_by_role('menuitem', name=delete_menu_text, exact=True)
             if delete_item.count() == 0:
-                delete_item = page.get_by_role('menuitem', name=delete_forever_text, exact=True)
-            click(delete_item, 'Choosing Delete forever...')
+                delete_item = page.locator('tp-yt-paper-listbox, ytcp-text-menu').get_by_text(delete_menu_text, exact=True)
+            if delete_item.count() == 0:
+                delete_item = page.get_by_text(delete_menu_text, exact=True)
+            click(delete_item, 'Choosing Delete in the options menu...')
+            page.wait_for_timeout(1500)
+            checkpoint('Delete dialog opened')
 
-            checkbox = page.get_by_role('checkbox', name=understand_checkbox_text, exact=True)
-            if checkbox.count() == 1:
-                checkbox.check()
+            checkbox = page.get_by_role('checkbox', name=understand_checkbox_text, exact=False)
+            if checkbox.count() >= 1:
+                checkbox.first.click()
             else:
-                checkbox_label = page.get_by_text(understand_checkbox_text, exact=True)
+                checkbox_label = page.get_by_text(understand_checkbox_text, exact=False)
                 if checkbox_label.count() == 0:
                     raise RuntimeError('Could not find the permanent deletion confirmation checkbox.')
                 checkbox_label.first.click()
             checkpoint('Confirmed permanent deletion checkbox')
 
             if dry_run:
-                checkpoint('Dry run: delete confirmation dialog shown')
-                close_button = page.get_by_role('button', name='Close', exact=True)
-                if close_button.count():
-                    close_button.first.click()
+                dialog = page.get_by_role('dialog')
+                scope = dialog.last if dialog.count() else page
+                found = next((t for t in final_delete_button_texts if scope.get_by_role('button', name=t, exact=True).count()), None)
+                checkpoint('Dry run: delete confirmation dialog shown; final button found: ' + str(found))
+                if not found:
+                    raise RuntimeError('Dry run: the final delete button was not found in the dialog.')
+                cancel = scope.get_by_role('button', name='Cancel', exact=True)   # verified 2026-10-28: the dialog's button is 'Cancel'
+                if cancel.count():
+                    cancel.last.click()
                 else:
                     page.keyboard.press('Escape')
+                page.wait_for_timeout(1000)
                 checkpoint('Dry run: closed delete confirmation dialog')
-                return {'deleted': False, 'already_gone': False, 'dry_run': True}
+                return {'deleted': False, 'already_gone': False, 'dry_run': True, 'final_button': found}
 
             dialog = page.get_by_role('dialog')
-            if dialog.count():
-                confirm_button = dialog.last.get_by_role('button', name=final_delete_button_text, exact=True)
-            else:
-                confirm_button = page.get_by_role('button', name=final_delete_button_text, exact=True)
-            if confirm_button.count() == 0:
-                confirm_button = page.locator('ytcp-button').filter(has_text=final_delete_button_text).last
+            scope = dialog.last if dialog.count() else page
+            confirm_button = None
+            for text in final_delete_button_texts:
+                candidate = scope.get_by_role('button', name=text, exact=True)
+                if candidate.count():
+                    confirm_button = candidate.last
+                    break
+            if confirm_button is None:
+                raise RuntimeError('Could not find the final delete button in the dialog.')
             checkpoint('Clicking final Delete button...')
             confirm_button.click()
 
