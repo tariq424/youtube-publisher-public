@@ -70,10 +70,14 @@ def player():
     channel = request.args.get('channel', '').strip()
     if kind not in ('short', 'long'):
         kind = 'long'
+    published = request.args.get('published') == '1'
     if channel not in keys:
-        channel = channels[0]['key'] if channels else ''
+        if published and channel:   # a published record can sit on a channel with no channel_configs file (e.g. moonshots_source)
+            channels = channels + [{'key': logic.identifier(channel), 'name': channel}]
+        else:
+            channel = channels[0]['key'] if channels else ''
     return render_template('player.html', channels=channels, categories=backend.CATEGORIES, job=job, kind=kind,
-                           channel=channel, published=request.args.get('published') == '1')
+                           channel=channel, published=published)
 
 @app.get('/health')
 def health():
