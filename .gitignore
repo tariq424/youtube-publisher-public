@@ -1,0 +1,7 @@
+/profiles/
+/uploads/
+/logs/
+/.venv/
+__pycache__/
+*.pyc
+/work/

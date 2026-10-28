@@ -1,0 +1,11 @@
+{
+  "port": 42030,
+  "chrome_profile": "F:\\youtube-publisher\\profiles\\main",
+  "log_dir": "F:\\youtube-publisher\\logs",
+  "video_studio_jobs": "F:\\videos\\video_studio\\jobs",
+  "playwright_headless": false,
+  "upload_timeout_seconds": 2400,
+  "extra_job_roots": [
+    "F:\\videos\\newsroom\\staging"
+  ]
+}
