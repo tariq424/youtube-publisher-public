@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="player-shell">
+  <div class="card player-card">
+    <div class="row spread">
+      <div>
+        <div class="eyebrow">PUBLISHING DESK</div>
+        <h1 id="player-title">{{ 'Published video' if published else 'Fine-tune and publish' }}</h1>
+      </div>
+      <button type="button" class="secondary" onclick="window.close()">Close ✕</button>
+    </div>
+
+    <div id="job-error" class="error" role="alert"></div>
+
+    <div class="row channel-row">
+      <label>Channel
+        <select id="channel">
+          {% for c in channels %}
+          <option value="{{ c.key }}" {% if c.key == channel %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <input type="hidden" id="job" value="{{ job }}">
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Video type">
+      <button type="button" id="tab-short" role="tab" data-kind="short">Short <span>9:16</span></button>
+      <button type="button" id="tab-long" role="tab" data-kind="long">Explainer <span>16:9</span></button>
+    </div>
+
+    <div id="published-links" class="card section-card" hidden></div>
+
+    <div class="video-preview-card card section-card">
+      <div class="section-title"><span class="step">01</span><h2>Preview</h2><span class="badge" id="preview-kind">EXPLAINER</span></div>
+      <div class="video-stage"><video id="player" controls preload="metadata"></video></div>
+      <h3 id="filename">Choose a finished job</h3>
+      <div id="file-info" class="media-facts"></div>
+      <p class="small muted">Preview only · Your video stays exactly as rendered.</p>
+    </div>
+
+    <form id="publish-form">
+      <div class="player-grid">
+        <div class="player-main edit-only">
+          <div class="card section-card">
+            <div class="section-title"><span class="step">02</span><h2>Make the first impression</h2></div>
+            <div class="thumb-layout">
+              <img id="thumbnail" alt="Selected thumbnail">
+              <div>
+                <h3>Thumbnail</h3>
+                <p class="muted small">The first frame of your story.</p>
+                <button type="button" class="secondary js-action" id="frame-open">Regenerate from frame</button>
+                <button type="button" class="secondary js-action" id="custom-open">Upload custom</button>
+                <button type="button" class="text-button js-action" id="generated">Use generated</button>
+                <input type="file" id="custom-file" accept="image/png,image/jpeg,image/webp" hidden>
+              </div>
+            </div>
+
+            <div class="field-head"><label for="title">Title</label><button type="button" class="text-button regenerate js-action" data-field="title">↻ Regenerate</button></div>
+            <input id="title" maxlength="100" required placeholder="A title that makes the story clear">
+            <div class="count" id="title-count">0 / 100</div>
+
+            <div class="field-head"><label for="description">Description</label><button type="button" class="text-button regenerate js-action" data-field="description">↻ Regenerate</button></div>
+            <textarea id="description" maxlength="5000" rows="8" required></textarea>
+            <div id="hook-preview" class="hook-preview"></div>
+            <div class="count" id="description-count">0 / 5000</div>
+
+            <div class="field-head"><label for="tag-entry">Tags</label><button type="button" class="text-button regenerate js-action" data-field="tags">↻ Regenerate</button></div>
+            <div id="tags" class="chips"></div>
+            <input id="tag-entry" placeholder="Add a tag, then press Enter">
+            <div class="count" id="tags-count">0 / 500</div>
+
+            <label>Category
+              <select id="category">
+                {% for c in categories %}<option>{{ c }}</option>{% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <div class="card section-card">
+            <div class="section-title"><span class="step">03</span><h2>Set the destination</h2></div>
+            <fieldset>
+              <legend>Visibility</legend>
+              <div class="radio-row">
+                <label><input type="radio" name="visibility" value="Private" checked> Private</label>
+                <label><input type="radio" name="visibility" value="Unlisted"> Unlisted</label>
+                <label><input type="radio" name="visibility" value="Public"> Public</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Made for kids</legend>
+              <div class="radio-row">
+                <label><input type="radio" name="kids" value="no" checked> No</label>
+                <label><input type="radio" name="kids" value="yes"> Yes</label>
+              </div>
+            </fieldset>
+            <label>Video language
+              <select id="language">
+                {% for l in ['English','Spanish','French','German','Arabic','Hindi','Urdu'] %}<option>{{ l }}</option>{% endfor %}
+              </select>
+            </label>
+            <div id="chapter-section">
+              <div class="field-head"><label>Chapters</label><button type="button" class="text-button regenerate js-action" data-field="chapters">↻ Regenerate</button></div>
+              <div id="chapters"></div>
+              <button type="button" class="secondary" id="add-chapter">+ Add chapter</button>
+              <p class="small muted">Start at 0:00. Add at least three chapters, or leave empty.</p>
+            </div>
+            <label id="link-label" for="link-search">End screen link (optional)</label>
+            <input id="link-search" placeholder="Search published videos by title, channel or ID">
+            <select id="link-target">
+              <option value="">None — publish without a link</option>
+            </select>
+            <p class="small muted">Only previously published videos appear here.</p>
+          </div>
+        </div>
+
+        <aside class="player-side edit-only">
+          <div class="card progress">
+            <div class="field-head"><h2>Publishing activity</h2><span id="task-status" class="badge">IDLE</span></div>
+            <div id="progress-empty">
+              <span class="orbit">↗</span>
+              <h3>Your next upload starts here.</h3>
+              <p class="muted small">Follow each step and see Studio screenshots as your video uploads.</p>
+            </div>
+            <div id="progress-log" aria-live="polite"></div>
+            <div id="result"></div>
+            <div id="recovery" hidden>
+              <button type="button" id="retry" class="secondary js-action">Retry from this step</button>
+              <button type="button" id="restart" class="secondary js-action">Restart upload</button>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" id="publish-button" class="primary js-action">Publish to YouTube <span>↗</span></button>
+            <button type="button" class="secondary js-action" id="publish-both" hidden title="Explainer first; its link then goes into the Short">Publish both ↗</button>
+            <button type="button" class="secondary js-action" id="save-draft">Save draft</button>
+            <button type="button" class="text-button" id="reset">Reset</button>
+            <button type="button" class="text-button" id="cancel">Cancel</button>
+          </div>
+          <p id="form-message" role="status"></p>
+        </aside>
+      </div>
+    </form>
+  </div>
+</div>
+
+<dialog id="frame-dialog">
+  <h2>Pick your thumbnail frame</h2>
+  <video id="frame-player" controls preload="metadata"></video>
+  <label>Frame position <input id="frame-time" type="range" min="0" max="1" step="0.1" value="0"></label>
+  <span id="frame-position">0:00</span>
+  <div class="actions">
+    <button id="frame-save" class="js-action">Use this frame</button>
+    <button class="secondary" id="frame-close">Cancel</button>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.PLAYER_JOB = {{ job|tojson }};
+window.PLAYER_KIND = {{ kind|tojson }};
+window.PLAYER_CHANNEL = {{ channel|tojson }};
+window.PLAYER_PUBLISHED = {{ 'true' if published else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='js/player.js') }}" defer></script>
+{% endblock %}

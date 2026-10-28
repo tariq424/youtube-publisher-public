@@ -1,3 +1,19 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>YouTube Publisher</title><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"></head><body>
-<header><a class="brand" href="/">◉ <strong>YouTube Publisher</strong></a><span class="badge">LOCAL STUDIO</span><span class="muted">Finished videos. Ready for their audience.</span><span class="status-dot">●</span><span>Ready</span></header>
-{% block content %}{% endblock %}<script src="{{ url_for('static', filename='js/publish.js') }}" defer></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YouTube Publisher</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body data-test-mode="{{ 'true' if test_mode else 'false' }}" data-default-channel="{{ default_channel }}" data-actual-port="{{ actual_port }}" data-live-port="{{ live_port }}">
+<header>
+  <a class="brand" href="/">◉ <strong>YouTube Publisher</strong></a>
+  {% if test_mode %}<span class="test-pill" title="TEST copy on port {{ actual_port }} — non-GET actions are disabled server-side">TEST</span>{% endif %}
+  <span class="muted">Finished videos. Ready for their audience.</span>
+  <span class="status-dot">●</span><span>Ready</span>
+</header>
+{% block content %}{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -11,11 +11,30 @@ import publisher_logic as logic
 import youtube_publisher as backend
 
 ROOT = Path(__file__).resolve().parent
+def live_port():
+    return int(logic.config().get('port', 42030))
+
+ACTUAL_PORT = int(os.environ.get('PUBLISHER_PORT') or live_port())   # TEST copy: PUBLISHER_PORT=42031
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 12 * 1024 * 1024
 tasks = {}
 task_lock = threading.Lock()
 browser_lock = threading.Lock()
+
+
+def channel_options():
+    channels = []
+    for path in (ROOT / 'channel_configs').glob('*.json'):
+        channels.append({'key': path.stem, 'name': backend.read_json(path)['youtube_channel_name']})
+    return channels
+
+
+@app.context_processor
+def inject_ui():
+    live = live_port()
+    channels = channel_options()
+    return dict(test_mode=ACTUAL_PORT != live, actual_port=ACTUAL_PORT, live_port=live,
+                default_channel=channels[0]['key'] if channels else '')
 
 @app.before_request
 def local_requests():
@@ -27,6 +46,12 @@ def local_requests():
     if request.host.split(':')[0] not in ('127.0.0.1', 'localhost'):
         return jsonify(error='Local access only.'), 403
 
+@app.before_request
+def test_copy_writes():
+    """A TEST copy (any port but the live one) shares the real Chrome profile and channels: refuse every action."""
+    if ACTUAL_PORT != live_port() and request.method != 'GET':
+        return jsonify(error='TEST copy: actions are disabled'), 403
+
 @app.errorhandler(ValueError)
 @app.errorhandler(FileNotFoundError)
 def input_error(error):
@@ -34,10 +59,21 @@ def input_error(error):
 
 @app.get('/')
 def home():
-    channels = []
-    for path in (ROOT / 'channel_configs').glob('*.json'):
-        channels.append({'key': path.stem, 'name': backend.read_json(path)['youtube_channel_name']})
-    return render_template('publish.html', channels=channels, categories=backend.CATEGORIES)
+    return render_template('publish.html', channels=channel_options(), categories=backend.CATEGORIES)
+
+@app.get('/player')
+def player():
+    channels = channel_options()
+    keys = {c['key'] for c in channels}
+    job = request.args.get('job', '').strip()
+    kind = request.args.get('kind', 'long').strip()
+    channel = request.args.get('channel', '').strip()
+    if kind not in ('short', 'long'):
+        kind = 'long'
+    if channel not in keys:
+        channel = channels[0]['key'] if channels else ''
+    return render_template('player.html', channels=channels, categories=backend.CATEGORIES, job=job, kind=kind,
+                           channel=channel, published=request.args.get('published') == '1')
 
 @app.get('/health')
 def health():
@@ -333,4 +369,4 @@ if __name__ == '__main__':
     Path(cfg['log_dir']).mkdir(parents=True, exist_ok=True)
     logging.basicConfig(filename=Path(cfg['log_dir']) / 'publisher.log', level=logging.INFO,
                         format='%(asctime)s %(levelname)s %(message)s', encoding='utf-8')
-    app.run(host='127.0.0.1', port=int(cfg['port']), debug=False, threaded=True, use_reloader=False)
+    app.run(host='127.0.0.1', port=ACTUAL_PORT, debug=False, threaded=True, use_reloader=False)
